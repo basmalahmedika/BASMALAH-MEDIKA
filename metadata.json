@@ -1,0 +1,7 @@
+{
+  "name": "Klinik Basmalah Medika",
+  "description": "Sistem Informasi Keuangan dan Statistik Pasien Klinik Basmalah Medika. Dilengkapi dengan manajemen pendapatan, pengeluaran, dan pelaporan ekspor.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
