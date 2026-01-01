@@ -6,13 +6,16 @@ import { Transactions } from './components/Transactions';
 import { Categories } from './components/Categories';
 import { ImageEditor } from './components/ImageEditor';
 import { DailyStats } from './components/DailyStats';
+import { Analytics } from './components/Analytics';
 import { Category, Transaction, SummaryStats, PatientDailyStat } from './types';
 import { INITIAL_CATEGORIES, INITIAL_TRANSACTIONS } from './constants';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'transactions' | 'categories' | 'daily-stats' | 'ai-tool'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'transactions' | 'categories' | 'daily-stats' | 'ai-tool' | 'analytics'>(() => {
+    const saved = localStorage.getItem('med_active_tab');
+    return (saved as any) || 'dashboard';
+  });
   
-  // Data State - Persistence via LocalStorage
   const [categories, setCategories] = useState<Category[]>(() => {
     const saved = localStorage.getItem('med_categories');
     return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
@@ -29,6 +32,10 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
+    localStorage.setItem('med_active_tab', activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
     localStorage.setItem('med_categories', JSON.stringify(categories));
   }, [categories]);
 
@@ -40,7 +47,6 @@ const App: React.FC = () => {
     localStorage.setItem('med_patient_stats', JSON.stringify(patientStats));
   }, [patientStats]);
 
-  // Derived Stats
   const stats: SummaryStats = useMemo(() => {
     const summary = transactions.reduce((acc, curr) => {
       if (curr.type === 'Income') {
@@ -57,13 +63,27 @@ const App: React.FC = () => {
     return summary;
   }, [transactions]);
 
-  // Handlers
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
-    setTransactions(prev => [{ ...t, id: Date.now().toString() }, ...prev]);
+    setTransactions(prev => [{ ...t, id: Date.now().toString() + Math.random().toString(36).substr(2, 9) }, ...prev]);
+  };
+
+  const addBulkTransactions = (bulk: Omit<Transaction, 'id'>[]) => {
+    const transactionsWithIds = bulk.map(t => ({
+      ...t,
+      id: Date.now().toString() + Math.random().toString(36).substr(2, 9)
+    }));
+    setTransactions(prev => [...transactionsWithIds, ...prev]);
+    alert(`${bulk.length} transaksi berhasil ditambahkan!`);
+  };
+
+  const updateTransaction = (id: string, updated: Omit<Transaction, 'id'>) => {
+    setTransactions(prev => prev.map(t => t.id === id ? { ...updated, id } : t));
   };
 
   const deleteTransaction = (id: string) => {
-    setTransactions(prev => prev.filter(t => t.id !== id));
+    if(window.confirm('Hapus transaksi ini?')) {
+      setTransactions(prev => prev.filter(t => t.id !== id));
+    }
   };
 
   const addPatientStat = (s: Omit<PatientDailyStat, 'id'>) => {
@@ -71,7 +91,9 @@ const App: React.FC = () => {
   };
 
   const deletePatientStat = (id: string) => {
-    setPatientStats(prev => prev.filter(s => s.id !== id));
+    if(window.confirm('Hapus data statistik ini?')) {
+      setPatientStats(prev => prev.filter(s => s.id !== id));
+    }
   };
 
   const updateCategory = (id: string, name: string) => {
@@ -83,7 +105,16 @@ const App: React.FC = () => {
   };
 
   const deleteCategory = (id: string) => {
-    setCategories(prev => prev.filter(c => c.id !== id));
+    if(window.confirm('Hapus kategori ini?')) {
+      setCategories(prev => prev.filter(c => c.id !== id));
+    }
+  };
+
+  const importAllData = (data: { transactions: Transaction[], categories: Category[], patientStats: PatientDailyStat[] }) => {
+    if (data.categories) setCategories(data.categories);
+    if (data.transactions) setTransactions(data.transactions);
+    if (data.patientStats) setPatientStats(data.patientStats);
+    alert('Data berhasil dipulihkan!');
   };
 
   return (
@@ -100,6 +131,8 @@ const App: React.FC = () => {
           transactions={transactions} 
           categories={categories}
           onAdd={addTransaction}
+          onBulkAdd={addBulkTransactions}
+          onUpdate={updateTransaction}
           onDelete={deleteTransaction}
         />
       )}
@@ -110,12 +143,22 @@ const App: React.FC = () => {
           onDelete={deletePatientStat}
         />
       )}
+      {activeTab === 'analytics' && (
+        <Analytics 
+          stats={stats}
+          transactions={transactions}
+          patientStats={patientStats}
+        />
+      )}
       {activeTab === 'categories' && (
         <Categories 
           categories={categories}
+          transactions={transactions}
+          patientStats={patientStats}
           onAdd={addCategory}
           onUpdate={updateCategory}
           onDelete={deleteCategory}
+          onImport={importAllData}
         />
       )}
       {activeTab === 'ai-tool' && <ImageEditor />}

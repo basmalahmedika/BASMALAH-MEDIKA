@@ -9,7 +9,8 @@ import {
   X, 
   LogOut,
   Hospital,
-  BarChart3
+  BarChart3,
+  PieChart
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -25,6 +26,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'transactions', label: 'Transaksi', icon: Receipt },
     { id: 'daily-stats', label: 'Data Harian', icon: BarChart3 },
+    { id: 'analytics', label: 'Analisa & Neraca', icon: PieChart },
     { id: 'categories', label: 'Kategori', icon: Settings },
     { id: 'ai-tool', label: 'AI Image Editor', icon: ImageIcon },
   ];

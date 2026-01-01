@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { Plus, Search, Trash2, Calendar, FileText, Download, FileSpreadsheet, FileBarChart } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Plus, Search, Trash2, Calendar, FileText, Download, FileSpreadsheet, FileBarChart, Edit2, X, Upload } from 'lucide-react';
 import { Transaction, Category, PatientType, TransactionType } from '../types';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
@@ -10,13 +10,19 @@ interface TransactionsProps {
   transactions: Transaction[];
   categories: Category[];
   onAdd: (t: Omit<Transaction, 'id'>) => void;
+  onBulkAdd: (bulk: Omit<Transaction, 'id'>[]) => void;
+  onUpdate: (id: string, t: Omit<Transaction, 'id'>) => void;
   onDelete: (id: string) => void;
 }
 
-export const Transactions: React.FC<TransactionsProps> = ({ transactions, categories, onAdd, onDelete }) => {
+export const Transactions: React.FC<TransactionsProps> = ({ transactions, categories, onAdd, onBulkAdd, onUpdate, onDelete }) => {
   const [showModal, setShowModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'All' | TransactionType>('All');
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  
+  // State for Editing
+  const [editId, setEditId] = useState<string | null>(null);
 
   // Form State
   const [newType, setNewType] = useState<TransactionType>('Income');
@@ -36,21 +42,109 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, catego
     return matchesSearch && matchesFilter;
   });
 
+  const resetForm = () => {
+    setEditId(null);
+    setNewCat('');
+    setNewAmount('');
+    setNewNote('');
+    setNewType('Income');
+    setNewPatient('Umum');
+    setNewDate(new Date().toISOString().split('T')[0]);
+  };
+
+  const handleOpenAdd = () => {
+    resetForm();
+    setShowModal(true);
+  };
+
+  const handleOpenEdit = (t: Transaction) => {
+    setEditId(t.id);
+    setNewType(t.type);
+    setNewCat(t.category);
+    setNewAmount(t.amount.toString());
+    setNewDate(t.date);
+    setNewPatient(t.patientType);
+    setNewNote(t.note);
+    setShowModal(true);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCat || !newAmount) return;
-    onAdd({
+    
+    const transactionData = {
       type: newType,
       category: newCat,
       amount: parseFloat(newAmount),
       date: newDate,
       patientType: newType === 'Income' ? newPatient : 'None',
       note: newNote,
-    });
+    };
+
+    if (editId) {
+      onUpdate(editId, transactionData);
+    } else {
+      onAdd(transactionData);
+    }
+
     setShowModal(false);
-    setNewCat('');
-    setNewAmount('');
-    setNewNote('');
+    resetForm();
+  };
+
+  const downloadTemplate = () => {
+    const templateData = [
+      {
+        Tanggal: "2023-12-01",
+        Tipe: "Pendapatan",
+        Kategori: categories.find(c => c.type === 'Income')?.name || "Layanan Rawat Inap",
+        Pasien: "Umum",
+        Jumlah: 500000,
+        Catatan: "Contoh: Pembayaran Pasien Umum"
+      },
+      {
+        Tanggal: "2023-12-01",
+        Tipe: "Pengeluaran",
+        Kategori: categories.find(c => c.type === 'Expense')?.name || "Alat Medis",
+        Pasien: "None",
+        Jumlah: 250000,
+        Catatan: "Contoh: Beli Kasa & Spuit"
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template");
+    XLSX.writeFile(wb, "Template_Upload_Transaksi_Basmalah.xlsx");
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const bstr = evt.target?.result;
+      const wb = XLSX.read(bstr, { type: 'binary' });
+      const wsname = wb.SheetNames[0];
+      const ws = wb.Sheets[wsname];
+      const data = XLSX.utils.sheet_to_json(ws);
+
+      const bulkData: Omit<Transaction, 'id'>[] = data.map((row: any) => ({
+        date: row.Tanggal || new Date().toISOString().split('T')[0],
+        type: row.Tipe === 'Pendapatan' ? 'Income' : 'Expense',
+        category: row.Kategori || 'Lain-lain',
+        patientType: (row.Pasien === 'BPJS' ? 'BPJS' : (row.Pasien === 'Umum' ? 'Umum' : 'None')) as PatientType,
+        amount: parseFloat(row.Jumlah) || 0,
+        note: row.Catatan || ''
+      }));
+
+      if (bulkData.length > 0) {
+        onBulkAdd(bulkData);
+      }
+      
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+    };
+    reader.readAsBinaryString(file);
   };
 
   const exportToXLSX = () => {
@@ -120,6 +214,7 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, catego
             <button 
               onClick={exportToXLSX}
               className="flex items-center gap-2 bg-white border border-slate-200 px-4 py-2.5 rounded-xl text-slate-600 font-bold text-sm hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-all"
+              title="Ekspor ke Excel"
             >
               <FileSpreadsheet className="w-4 h-4" />
               XLSX
@@ -127,6 +222,7 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, catego
             <button 
               onClick={exportToPDF}
               className="flex items-center gap-2 bg-white border border-slate-200 px-4 py-2.5 rounded-xl text-slate-600 font-bold text-sm hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition-all"
+              title="Ekspor ke PDF"
             >
               <FileBarChart className="w-4 h-4" />
               PDF
@@ -134,13 +230,36 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, catego
           </div>
         </div>
         
-        <button 
-          onClick={() => setShowModal(true)}
-          className="flex items-center justify-center gap-2 bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200"
-        >
-          <Plus className="w-5 h-5" />
-          Transaksi Baru
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={downloadTemplate}
+            className="flex items-center justify-center gap-2 bg-slate-100 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all"
+          >
+            <Download className="w-4 h-4" />
+            Template
+          </button>
+          <button 
+            onClick={() => uploadInputRef.current?.click()}
+            className="flex items-center justify-center gap-2 bg-indigo-50 text-indigo-600 px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-100 transition-all border border-indigo-200"
+          >
+            <Upload className="w-4 h-4" />
+            Upload XLSX
+          </button>
+          <input 
+            type="file" 
+            ref={uploadInputRef} 
+            className="hidden" 
+            accept=".xlsx, .xls" 
+            onChange={handleFileUpload}
+          />
+          <button 
+            onClick={handleOpenAdd}
+            className="flex items-center justify-center gap-2 bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200"
+          >
+            <Plus className="w-5 h-5" />
+            Baru
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -184,12 +303,22 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, catego
                     {t.type === 'Income' ? '+' : '-'} {formatCurrency(t.amount)}
                   </td>
                   <td className="px-6 py-4 text-center">
-                    <button 
-                      onClick={() => onDelete(t.id)}
-                      className="p-2 text-slate-300 hover:text-rose-600 transition-colors opacity-0 group-hover:opacity-100"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
+                    <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => handleOpenEdit(t)}
+                        className="p-2 text-slate-400 hover:text-emerald-600 transition-colors"
+                        title="Edit"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => onDelete(t.id)}
+                        className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
+                        title="Hapus"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -204,13 +333,13 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, catego
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Modal CRUD */}
       {showModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowModal(false)} />
           <div className="relative bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-emerald-50/50">
-              <h3 className="text-2xl font-bold text-slate-800">Tambah Transaksi</h3>
+              <h3 className="text-2xl font-bold text-slate-800">{editId ? 'Edit Transaksi' : 'Tambah Transaksi'}</h3>
               <button onClick={() => setShowModal(false)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
             </div>
             
@@ -304,7 +433,7 @@ export const Transactions: React.FC<TransactionsProps> = ({ transactions, catego
                 type="submit"
                 className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-200"
               >
-                Simpan Transaksi
+                {editId ? 'Simpan Perubahan' : 'Simpan Transaksi'}
               </button>
             </form>
           </div>
@@ -323,11 +452,5 @@ const ArrowUpRight = ({ className }: { className?: string }) => (
 const ArrowDownRight = ({ className }: { className?: string }) => (
   <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 13l-5 5m0 0l-5-5m5 5V6" />
-  </svg>
-);
-
-const X = ({ className }: { className?: string }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
   </svg>
 );
