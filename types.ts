@@ -25,6 +25,23 @@ export interface PatientDailyStat {
   outpatientBpjs: number;
   inpatientDischargeUmum: number;
   inpatientDischargeBpjs: number;
+  inpatientAdmissionUmum: number; // Added
+  inpatientAdmissionBpjs: number; // Added
+}
+
+export interface BalanceItem {
+  id: string;
+  name: string;
+  amount: number;
+  category: 'Asset' | 'Liability' | 'Equity';
+}
+
+export interface AppTheme {
+  name: string;
+  primary: string;
+  secondary: string;
+  accent: string;
+  bgLight: string;
 }
 
 export interface SummaryStats {

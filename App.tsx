@@ -7,11 +7,20 @@ import { Categories } from './components/Categories';
 import { ImageEditor } from './components/ImageEditor';
 import { DailyStats } from './components/DailyStats';
 import { Analytics } from './components/Analytics';
-import { Category, Transaction, SummaryStats, PatientDailyStat } from './types';
+import { Settings } from './components/Settings';
+import { Category, Transaction, SummaryStats, PatientDailyStat, BalanceItem, AppTheme } from './types';
 import { INITIAL_CATEGORIES, INITIAL_TRANSACTIONS } from './constants';
 
+const DEFAULT_THEME: AppTheme = {
+  name: 'Emerald',
+  primary: 'emerald-600',
+  secondary: 'emerald-50',
+  accent: 'emerald-700',
+  bgLight: 'bg-emerald-50'
+};
+
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'transactions' | 'categories' | 'daily-stats' | 'ai-tool' | 'analytics'>(() => {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'transactions' | 'categories' | 'daily-stats' | 'ai-tool' | 'analytics' | 'settings'>(() => {
     const saved = localStorage.getItem('med_active_tab');
     return (saved as any) || 'dashboard';
   });
@@ -31,6 +40,20 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [balanceItems, setBalanceItems] = useState<BalanceItem[]>(() => {
+    const saved = localStorage.getItem('med_balance_items');
+    return saved ? JSON.parse(saved) : [
+      { id: 'b1', name: 'Kas & Bank', amount: 0, category: 'Asset' },
+      { id: 'b2', name: 'Inventaris Medis', amount: 50000000, category: 'Asset' },
+      { id: 'b3', name: 'Modal Awal', amount: 100000000, category: 'Equity' }
+    ];
+  });
+
+  const [theme, setTheme] = useState<AppTheme>(() => {
+    const saved = localStorage.getItem('med_theme');
+    return saved ? JSON.parse(saved) : DEFAULT_THEME;
+  });
+
   useEffect(() => {
     localStorage.setItem('med_active_tab', activeTab);
   }, [activeTab]);
@@ -46,6 +69,14 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('med_patient_stats', JSON.stringify(patientStats));
   }, [patientStats]);
+
+  useEffect(() => {
+    localStorage.setItem('med_balance_items', JSON.stringify(balanceItems));
+  }, [balanceItems]);
+
+  useEffect(() => {
+    localStorage.setItem('med_theme', JSON.stringify(theme));
+  }, [theme]);
 
   const stats: SummaryStats = useMemo(() => {
     const summary = transactions.reduce((acc, curr) => {
@@ -96,6 +127,20 @@ const App: React.FC = () => {
     }
   };
 
+  const updateBalanceItem = (id: string, item: Partial<BalanceItem>) => {
+    setBalanceItems(prev => prev.map(bi => bi.id === id ? { ...bi, ...item } : bi));
+  };
+
+  const addBalanceItem = (item: Omit<BalanceItem, 'id'>) => {
+    setBalanceItems(prev => [...prev, { ...item, id: Date.now().toString() }]);
+  };
+
+  const deleteBalanceItem = (id: string) => {
+    if(window.confirm('Hapus item neraca ini?')) {
+      setBalanceItems(prev => prev.filter(bi => bi.id !== id));
+    }
+  };
+
   const updateCategory = (id: string, name: string) => {
     setCategories(prev => prev.map(c => c.id === id ? { ...c, name } : c));
   };
@@ -110,20 +155,22 @@ const App: React.FC = () => {
     }
   };
 
-  const importAllData = (data: { transactions: Transaction[], categories: Category[], patientStats: PatientDailyStat[] }) => {
+  const importAllData = (data: any) => {
     if (data.categories) setCategories(data.categories);
     if (data.transactions) setTransactions(data.transactions);
     if (data.patientStats) setPatientStats(data.patientStats);
+    if (data.balanceItems) setBalanceItems(data.balanceItems);
     alert('Data berhasil dipulihkan!');
   };
 
   return (
-    <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
+    <Layout activeTab={activeTab} setActiveTab={setActiveTab} theme={theme}>
       {activeTab === 'dashboard' && (
         <Dashboard 
           stats={stats} 
           transactions={transactions} 
           patientStats={patientStats}
+          theme={theme}
         />
       )}
       {activeTab === 'transactions' && (
@@ -134,6 +181,7 @@ const App: React.FC = () => {
           onBulkAdd={addBulkTransactions}
           onUpdate={updateTransaction}
           onDelete={deleteTransaction}
+          theme={theme}
         />
       )}
       {activeTab === 'daily-stats' && (
@@ -141,6 +189,7 @@ const App: React.FC = () => {
           stats={patientStats}
           onAdd={addPatientStat}
           onDelete={deletePatientStat}
+          theme={theme}
         />
       )}
       {activeTab === 'analytics' && (
@@ -148,6 +197,11 @@ const App: React.FC = () => {
           stats={stats}
           transactions={transactions}
           patientStats={patientStats}
+          balanceItems={balanceItems}
+          onUpdateBalance={updateBalanceItem}
+          onAddBalance={addBalanceItem}
+          onDeleteBalance={deleteBalanceItem}
+          theme={theme}
         />
       )}
       {activeTab === 'categories' && (
@@ -159,6 +213,13 @@ const App: React.FC = () => {
           onUpdate={updateCategory}
           onDelete={deleteCategory}
           onImport={importAllData}
+          theme={theme}
+        />
+      )}
+      {activeTab === 'settings' && (
+        <Settings 
+          theme={theme} 
+          setTheme={setTheme} 
         />
       )}
       {activeTab === 'ai-tool' && <ImageEditor />}

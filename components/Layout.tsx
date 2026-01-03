@@ -3,23 +3,26 @@ import React, { useState } from 'react';
 import { 
   LayoutDashboard, 
   Receipt, 
-  Settings, 
+  Settings as SettingsIcon, 
   Image as ImageIcon, 
   Menu, 
   X, 
   LogOut,
   Hospital,
   BarChart3,
-  PieChart
+  PieChart,
+  Palette
 } from 'lucide-react';
+import { AppTheme } from '../types';
 
 interface LayoutProps {
   children: React.ReactNode;
   activeTab: string;
   setActiveTab: (tab: any) => void;
+  theme: AppTheme;
 }
 
-export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab }) => {
+export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, theme }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const navItems = [
@@ -27,9 +30,15 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
     { id: 'transactions', label: 'Transaksi', icon: Receipt },
     { id: 'daily-stats', label: 'Data Harian', icon: BarChart3 },
     { id: 'analytics', label: 'Analisa & Neraca', icon: PieChart },
-    { id: 'categories', label: 'Kategori', icon: Settings },
+    { id: 'categories', label: 'Kategori', icon: SettingsIcon },
+    { id: 'settings', label: 'Tema Warna', icon: Palette },
     { id: 'ai-tool', label: 'AI Image Editor', icon: ImageIcon },
   ];
+
+  // Map primary color to Tailwind class dynamically
+  const primaryColorClass = `text-${theme.primary}`;
+  const primaryBgClass = `bg-${theme.primary}`;
+  const activeBgClass = `bg-${theme.secondary}`;
 
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-900">
@@ -41,12 +50,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between p-6 h-20 border-b border-slate-100">
             <div className="flex items-center gap-2">
-              <div className="p-2 bg-emerald-600 rounded-lg shadow-lg shadow-emerald-100">
+              <div className={`p-2 ${primaryBgClass} rounded-lg shadow-lg shadow-emerald-100`}>
                 <Hospital className="w-6 h-6 text-white" />
               </div>
               <div className="flex flex-col">
                 <span className="font-bold text-base leading-tight">Basmalah</span>
-                <span className="text-xs text-emerald-600 font-bold uppercase tracking-widest">Medika</span>
+                <span className={`text-xs ${primaryColorClass} font-bold uppercase tracking-widest`}>Medika</span>
               </div>
             </div>
             <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden">
@@ -57,6 +66,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
           <nav className="flex-1 px-4 py-6 space-y-1">
             {navItems.map((item) => {
               const Icon = item.icon;
+              const isActive = activeTab === item.id;
               return (
                 <button
                   key={item.id}
@@ -66,12 +76,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
                   }}
                   className={`
                     w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group
-                    ${activeTab === item.id 
-                      ? 'bg-emerald-50 text-emerald-600 font-semibold' 
+                    ${isActive 
+                      ? `${activeBgClass} ${primaryColorClass} font-semibold` 
                       : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}
                   `}
                 >
-                  <Icon className={`w-5 h-5 ${activeTab === item.id ? 'text-emerald-600' : 'text-slate-400 group-hover:text-slate-900'}`} />
+                  <Icon className={`w-5 h-5 ${isActive ? primaryColorClass : 'text-slate-400 group-hover:text-slate-900'}`} />
                   {item.label}
                 </button>
               );
@@ -107,7 +117,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
               <span className="text-sm font-medium text-slate-900">Admin Basmalah</span>
               <span className="text-xs text-slate-400">Staff Keuangan & Data</span>
             </div>
-            <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center border border-emerald-200 text-emerald-700 font-bold">
+            <div className={`w-10 h-10 rounded-full ${activeBgClass} flex items-center justify-center border border-slate-100 ${primaryColorClass} font-bold`}>
               BM
             </div>
           </div>
