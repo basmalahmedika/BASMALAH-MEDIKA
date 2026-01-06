@@ -1,12 +1,14 @@
 
 import React, { useState, useRef } from 'react';
-import { Plus, Edit2, Trash2, Check, X, Download, Upload, Database, AlertTriangle } from 'lucide-react';
-import { Category, TransactionType, Transaction, PatientDailyStat } from '../types';
+import { Plus, Edit2, Trash2, Check, X, Download, Upload, Database, AlertTriangle, MonitorSmartphone } from 'lucide-react';
+import { Category, TransactionType, Transaction, PatientDailyStat, BalanceItem, AppTheme } from '../types';
 
 interface CategoriesProps {
   categories: Category[];
   transactions: Transaction[];
   patientStats: PatientDailyStat[];
+  balanceItems: BalanceItem[];
+  theme: AppTheme;
   onAdd: (name: string, type: TransactionType) => void;
   onUpdate: (id: string, name: string) => void;
   onDelete: (id: string) => void;
@@ -14,7 +16,7 @@ interface CategoriesProps {
 }
 
 export const Categories: React.FC<CategoriesProps> = ({ 
-  categories, transactions, patientStats, onAdd, onUpdate, onDelete, onImport 
+  categories, transactions, patientStats, balanceItems, theme, onAdd, onUpdate, onDelete, onImport 
 }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -39,12 +41,15 @@ export const Categories: React.FC<CategoriesProps> = ({
       categories,
       transactions,
       patientStats,
-      exportedAt: new Date().toISOString()
+      balanceItems,
+      theme,
+      exportedAt: new Date().toISOString(),
+      version: "2.0"
     };
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData));
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `Basmalah_Medika_Backup_${new Date().toISOString().split('T')[0]}.json`);
+    downloadAnchorNode.setAttribute("download", `Full_Backup_BasmalahMedika_${new Date().toISOString().split('T')[0]}.json`);
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
@@ -57,11 +62,12 @@ export const Categories: React.FC<CategoriesProps> = ({
       reader.onload = (e) => {
         try {
           const json = JSON.parse(e.target?.result as string);
-          if (window.confirm("Peringatan: Mengimpor data akan menimpa data saat ini. Lanjutkan?")) {
+          if (window.confirm("Peringatan: Mengimpor data akan menimpa seluruh data (Transaksi, Kategori, Neraca) di perangkat ini. Lanjutkan?")) {
             onImport(json);
+            window.location.reload(); // Reload to apply all changes
           }
         } catch (err) {
-          alert("File tidak valid!");
+          alert("File backup tidak valid!");
         }
       };
       reader.readAsText(file);
@@ -70,17 +76,16 @@ export const Categories: React.FC<CategoriesProps> = ({
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Backup & Data Management Card */}
       <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm overflow-hidden relative">
         <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full -mr-16 -mt-16 opacity-50" />
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex items-center gap-4">
             <div className="p-3 bg-indigo-600 rounded-2xl shadow-lg shadow-indigo-100">
-              <Database className="w-6 h-6 text-white" />
+              <MonitorSmartphone className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-800">Manajemen Database</h3>
-              <p className="text-sm text-slate-500">Data disimpan secara otomatis di browser ini. Gunakan fitur ekspor untuk cadangan manual.</p>
+              <h3 className="text-lg font-bold text-slate-800">Sinkronisasi & Pindah Perangkat</h3>
+              <p className="text-sm text-slate-500">Ekspor file JSON di perangkat lama, lalu Impor di perangkat baru untuk memindahkan semua data.</p>
             </div>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -89,22 +94,16 @@ export const Categories: React.FC<CategoriesProps> = ({
               className="flex items-center gap-2 bg-white border border-slate-200 px-5 py-2.5 rounded-xl text-slate-600 font-bold text-sm hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm"
             >
               <Download className="w-4 h-4" />
-              Ekspor Backup (JSON)
+              Ekspor Seluruh Data
             </button>
             <button 
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-2 bg-slate-800 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-slate-900 transition-all shadow-lg shadow-slate-200"
+              className="flex items-center gap-2 bg-slate-800 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-slate-900 transition-all shadow-lg"
             >
               <Upload className="w-4 h-4" />
-              Impor Data
+              Impor & Pulihkan
             </button>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              className="hidden" 
-              accept=".json" 
-              onChange={handleImport}
-            />
+            <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleImport} />
           </div>
         </div>
       </div>
@@ -146,7 +145,7 @@ export const Categories: React.FC<CategoriesProps> = ({
       
       <div className="flex items-center gap-3 p-4 bg-amber-50 rounded-2xl border border-amber-100 text-amber-800">
         <AlertTriangle className="w-5 h-5 shrink-0" />
-        <p className="text-xs font-medium">Tips: Selalu lakukan ekspor data seminggu sekali untuk mengantisipasi jika Anda membersihkan riwayat browser atau berpindah komputer.</p>
+        <p className="text-xs font-medium">Tips: Selalu lakukan backup setiap kali ada perubahan data besar untuk menghindari kehilangan data jika browser dibersihkan.</p>
       </div>
     </div>
   );
@@ -182,65 +181,34 @@ const CategorySection: React.FC<SectionProps> = ({
       <div className="flex gap-2 mb-8">
         <input 
           type="text" 
-          placeholder="Nama kategori baru..."
+          placeholder="Nama kategori..."
           className="flex-1 bg-slate-50 border-2 border-transparent focus:border-indigo-500/20 focus:bg-white rounded-xl px-4 py-3 outline-none font-medium transition-all"
           value={type === newType ? newName : ''}
-          onChange={(e) => {
-            setNewName(e.target.value);
-            setNewType(type);
-          }}
+          onChange={(e) => { setNewName(e.target.value); setNewType(type); }}
         />
-        <button 
-          onClick={onAdd}
-          className="bg-indigo-600 text-white p-3 rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100"
-        >
-          <Plus className="w-6 h-6" />
-        </button>
+        <button onClick={onAdd} className="bg-indigo-600 text-white p-3 rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100"><Plus className="w-6 h-6" /></button>
       </div>
 
       <div className="space-y-2">
         {categories.map((cat) => (
-          <div key={cat.id} className="group flex items-center justify-between p-4 bg-slate-50/50 rounded-2xl hover:bg-white border border-transparent hover:border-slate-100 transition-all">
+          <div key={cat.id} className="group flex items-center justify-between p-4 bg-slate-50/50 rounded-2xl hover:bg-white border border-transparent hover:border-slate-100">
             {editingId === cat.id ? (
               <div className="flex items-center gap-2 flex-1 mr-2">
-                <input 
-                  autoFocus
-                  className="flex-1 bg-white border-2 border-indigo-200 rounded-lg px-2 py-1 outline-none font-bold"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && onUpdate(cat.id)}
-                />
+                <input autoFocus className="flex-1 bg-white border-2 border-indigo-200 rounded-lg px-2 py-1 outline-none font-bold" value={editName} onChange={(e) => setEditName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onUpdate(cat.id)} />
                 <button onClick={() => onUpdate(cat.id)} className="text-emerald-600"><Check className="w-5 h-5" /></button>
                 <button onClick={() => setEditingId(null)} className="text-slate-400"><X className="w-5 h-5" /></button>
               </div>
             ) : (
               <span className="font-bold text-slate-700">{cat.name}</span>
             )}
-            
             {!editingId && (
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button 
-                  onClick={() => {
-                    setEditingId(cat.id);
-                    setEditName(cat.name);
-                  }}
-                  className="p-2 text-slate-400 hover:text-indigo-600 transition-colors"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
-                <button 
-                  onClick={() => onDelete(cat.id)}
-                  className="p-2 text-slate-400 hover:text-rose-600 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                <button onClick={() => {setEditingId(cat.id); setEditName(cat.name)}} className="p-2 text-slate-400 hover:text-indigo-600"><Edit2 className="w-4 h-4" /></button>
+                <button onClick={() => onDelete(cat.id)} className="p-2 text-slate-400 hover:text-rose-600"><Trash2 className="w-4 h-4" /></button>
               </div>
             )}
           </div>
         ))}
-        {categories.length === 0 && (
-          <p className="text-center py-4 text-slate-400 text-sm italic">Belum ada kategori</p>
-        )}
       </div>
     </div>
   );

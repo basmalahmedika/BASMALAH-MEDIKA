@@ -54,29 +54,12 @@ const App: React.FC = () => {
     return saved ? JSON.parse(saved) : DEFAULT_THEME;
   });
 
-  useEffect(() => {
-    localStorage.setItem('med_active_tab', activeTab);
-  }, [activeTab]);
-
-  useEffect(() => {
-    localStorage.setItem('med_categories', JSON.stringify(categories));
-  }, [categories]);
-
-  useEffect(() => {
-    localStorage.setItem('med_transactions', JSON.stringify(transactions));
-  }, [transactions]);
-
-  useEffect(() => {
-    localStorage.setItem('med_patient_stats', JSON.stringify(patientStats));
-  }, [patientStats]);
-
-  useEffect(() => {
-    localStorage.setItem('med_balance_items', JSON.stringify(balanceItems));
-  }, [balanceItems]);
-
-  useEffect(() => {
-    localStorage.setItem('med_theme', JSON.stringify(theme));
-  }, [theme]);
+  useEffect(() => { localStorage.setItem('med_active_tab', activeTab); }, [activeTab]);
+  useEffect(() => { localStorage.setItem('med_categories', JSON.stringify(categories)); }, [categories]);
+  useEffect(() => { localStorage.setItem('med_transactions', JSON.stringify(transactions)); }, [transactions]);
+  useEffect(() => { localStorage.setItem('med_patient_stats', JSON.stringify(patientStats)); }, [patientStats]);
+  useEffect(() => { localStorage.setItem('med_balance_items', JSON.stringify(balanceItems)); }, [balanceItems]);
+  useEffect(() => { localStorage.setItem('med_theme', JSON.stringify(theme)); }, [theme]);
 
   const stats: SummaryStats = useMemo(() => {
     const summary = transactions.reduce((acc, curr) => {
@@ -99,12 +82,8 @@ const App: React.FC = () => {
   };
 
   const addBulkTransactions = (bulk: Omit<Transaction, 'id'>[]) => {
-    const transactionsWithIds = bulk.map(t => ({
-      ...t,
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9)
-    }));
+    const transactionsWithIds = bulk.map(t => ({ ...t, id: Date.now().toString() + Math.random().toString(36).substr(2, 9) }));
     setTransactions(prev => [...transactionsWithIds, ...prev]);
-    alert(`${bulk.length} transaksi berhasil ditambahkan!`);
   };
 
   const updateTransaction = (id: string, updated: Omit<Transaction, 'id'>) => {
@@ -112,9 +91,7 @@ const App: React.FC = () => {
   };
 
   const deleteTransaction = (id: string) => {
-    if(window.confirm('Hapus transaksi ini?')) {
-      setTransactions(prev => prev.filter(t => t.id !== id));
-    }
+    if(window.confirm('Hapus transaksi ini?')) setTransactions(prev => prev.filter(t => t.id !== id));
   };
 
   const addPatientStat = (s: Omit<PatientDailyStat, 'id'>) => {
@@ -122,9 +99,7 @@ const App: React.FC = () => {
   };
 
   const deletePatientStat = (id: string) => {
-    if(window.confirm('Hapus data statistik ini?')) {
-      setPatientStats(prev => prev.filter(s => s.id !== id));
-    }
+    if(window.confirm('Hapus data statistik ini?')) setPatientStats(prev => prev.filter(s => s.id !== id));
   };
 
   const updateBalanceItem = (id: string, item: Partial<BalanceItem>) => {
@@ -136,9 +111,7 @@ const App: React.FC = () => {
   };
 
   const deleteBalanceItem = (id: string) => {
-    if(window.confirm('Hapus item neraca ini?')) {
-      setBalanceItems(prev => prev.filter(bi => bi.id !== id));
-    }
+    if(window.confirm('Hapus item neraca ini?')) setBalanceItems(prev => prev.filter(bi => bi.id !== id));
   };
 
   const updateCategory = (id: string, name: string) => {
@@ -150,9 +123,7 @@ const App: React.FC = () => {
   };
 
   const deleteCategory = (id: string) => {
-    if(window.confirm('Hapus kategori ini?')) {
-      setCategories(prev => prev.filter(c => c.id !== id));
-    }
+    if(window.confirm('Hapus kategori ini?')) setCategories(prev => prev.filter(c => c.id !== id));
   };
 
   const importAllData = (data: any) => {
@@ -160,68 +131,18 @@ const App: React.FC = () => {
     if (data.transactions) setTransactions(data.transactions);
     if (data.patientStats) setPatientStats(data.patientStats);
     if (data.balanceItems) setBalanceItems(data.balanceItems);
-    alert('Data berhasil dipulihkan!');
+    if (data.theme) setTheme(data.theme);
+    alert('Data berhasil dipulihkan secara menyeluruh!');
   };
 
   return (
     <Layout activeTab={activeTab} setActiveTab={setActiveTab} theme={theme}>
-      {activeTab === 'dashboard' && (
-        <Dashboard 
-          stats={stats} 
-          transactions={transactions} 
-          patientStats={patientStats}
-          theme={theme}
-        />
-      )}
-      {activeTab === 'transactions' && (
-        <Transactions 
-          transactions={transactions} 
-          categories={categories}
-          onAdd={addTransaction}
-          onBulkAdd={addBulkTransactions}
-          onUpdate={updateTransaction}
-          onDelete={deleteTransaction}
-          theme={theme}
-        />
-      )}
-      {activeTab === 'daily-stats' && (
-        <DailyStats 
-          stats={patientStats}
-          onAdd={addPatientStat}
-          onDelete={deletePatientStat}
-          theme={theme}
-        />
-      )}
-      {activeTab === 'analytics' && (
-        <Analytics 
-          stats={stats}
-          transactions={transactions}
-          patientStats={patientStats}
-          balanceItems={balanceItems}
-          onUpdateBalance={updateBalanceItem}
-          onAddBalance={addBalanceItem}
-          onDeleteBalance={deleteBalanceItem}
-          theme={theme}
-        />
-      )}
-      {activeTab === 'categories' && (
-        <Categories 
-          categories={categories}
-          transactions={transactions}
-          patientStats={patientStats}
-          onAdd={addCategory}
-          onUpdate={updateCategory}
-          onDelete={deleteCategory}
-          onImport={importAllData}
-          theme={theme}
-        />
-      )}
-      {activeTab === 'settings' && (
-        <Settings 
-          theme={theme} 
-          setTheme={setTheme} 
-        />
-      )}
+      {activeTab === 'dashboard' && <Dashboard stats={stats} transactions={transactions} patientStats={patientStats} balanceItems={balanceItems} theme={theme} />}
+      {activeTab === 'transactions' && <Transactions transactions={transactions} categories={categories} onAdd={addTransaction} onBulkAdd={addBulkTransactions} onUpdate={updateTransaction} onDelete={deleteTransaction} theme={theme} />}
+      {activeTab === 'daily-stats' && <DailyStats stats={patientStats} onAdd={addPatientStat} onDelete={deletePatientStat} theme={theme} />}
+      {activeTab === 'analytics' && <Analytics stats={stats} transactions={transactions} patientStats={patientStats} balanceItems={balanceItems} onUpdateBalance={updateBalanceItem} onAddBalance={addBalanceItem} onDeleteBalance={deleteBalanceItem} theme={theme} />}
+      {activeTab === 'categories' && <Categories categories={categories} transactions={transactions} patientStats={patientStats} balanceItems={balanceItems} theme={theme} onAdd={addCategory} onUpdate={updateCategory} onDelete={deleteCategory} onImport={importAllData} />}
+      {activeTab === 'settings' && <Settings theme={theme} setTheme={setTheme} />}
       {activeTab === 'ai-tool' && <ImageEditor />}
     </Layout>
   );
