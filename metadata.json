@@ -1,6 +1,6 @@
 {
-  "name": "Klinik Basmalah Medika",
-  "description": "Sistem Informasi Keuangan dan Statistik Pasien Klinik Basmalah Medika. Dilengkapi dengan manajemen pendapatan, pengeluaran, dan pelaporan ekspor.",
+  "name": "Klinik Basmalah Medika - Finance ERP",
+  "description": "Sistem ERP Keuangan Terpadu untuk Klinik Basmalah Medika. Mendukung pelaporan pajak UMKM, neraca keuangan, statistik kunjungan pasien, dan pengolahan dokumen medis berbasis AI.",
   "requestFramePermissions": [
     "camera"
   ]

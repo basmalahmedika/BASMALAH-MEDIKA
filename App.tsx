@@ -21,37 +21,61 @@ const DEFAULT_THEME: AppTheme = {
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'transactions' | 'categories' | 'daily-stats' | 'ai-tool' | 'analytics' | 'settings'>(() => {
-    const saved = localStorage.getItem('med_active_tab');
-    return (saved as any) || 'dashboard';
+    try {
+      const saved = localStorage.getItem('med_active_tab');
+      return (saved as any) || 'dashboard';
+    } catch {
+      return 'dashboard';
+    }
   });
   
   const [categories, setCategories] = useState<Category[]>(() => {
-    const saved = localStorage.getItem('med_categories');
-    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+    try {
+      const saved = localStorage.getItem('med_categories');
+      return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+    } catch {
+      return INITIAL_CATEGORIES;
+    }
   });
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('med_transactions');
-    return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
+    try {
+      const saved = localStorage.getItem('med_transactions');
+      return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
+    } catch {
+      return INITIAL_TRANSACTIONS;
+    }
   });
 
   const [patientStats, setPatientStats] = useState<PatientDailyStat[]>(() => {
-    const saved = localStorage.getItem('med_patient_stats');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('med_patient_stats');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
 
   const [balanceItems, setBalanceItems] = useState<BalanceItem[]>(() => {
-    const saved = localStorage.getItem('med_balance_items');
-    return saved ? JSON.parse(saved) : [
-      { id: 'b1', name: 'Kas & Bank', amount: 0, category: 'Asset' },
-      { id: 'b2', name: 'Inventaris Medis', amount: 50000000, category: 'Asset' },
-      { id: 'b3', name: 'Modal Awal', amount: 100000000, category: 'Equity' }
-    ];
+    try {
+      const saved = localStorage.getItem('med_balance_items');
+      return saved ? JSON.parse(saved) : [
+        { id: 'b1', name: 'Kas & Bank', amount: 0, category: 'Asset' },
+        { id: 'b2', name: 'Inventaris Medis', amount: 50000000, category: 'Asset' },
+        { id: 'b3', name: 'Modal Awal', amount: 100000000, category: 'Equity' }
+      ];
+    } catch {
+      return [];
+    }
   });
 
   const [theme, setTheme] = useState<AppTheme>(() => {
-    const saved = localStorage.getItem('med_theme');
-    return saved ? JSON.parse(saved) : DEFAULT_THEME;
+    try {
+      const saved = localStorage.getItem('med_theme');
+      return saved ? JSON.parse(saved) : DEFAULT_THEME;
+    } catch {
+      return DEFAULT_THEME;
+    }
   });
 
   useEffect(() => { localStorage.setItem('med_active_tab', activeTab); }, [activeTab]);
@@ -78,11 +102,11 @@ const App: React.FC = () => {
   }, [transactions]);
 
   const addTransaction = (t: Omit<Transaction, 'id'>) => {
-    setTransactions(prev => [{ ...t, id: Date.now().toString() + Math.random().toString(36).substr(2, 9) }, ...prev]);
+    setTransactions(prev => [{ ...t, id: Date.now().toString() + Math.random().toString(36).substring(2, 9) }, ...prev]);
   };
 
   const addBulkTransactions = (bulk: Omit<Transaction, 'id'>[]) => {
-    const transactionsWithIds = bulk.map(t => ({ ...t, id: Date.now().toString() + Math.random().toString(36).substr(2, 9) }));
+    const transactionsWithIds = bulk.map(t => ({ ...t, id: Date.now().toString() + Math.random().toString(36).substring(2, 9) }));
     setTransactions(prev => [...transactionsWithIds, ...prev]);
   };
 
