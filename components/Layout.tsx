@@ -11,7 +11,8 @@ import {
   Hospital,
   BarChart3,
   PieChart,
-  Palette
+  Palette,
+  ChevronRight
 } from 'lucide-react';
 import { AppTheme } from '../types';
 
@@ -35,35 +36,31 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
     { id: 'ai-tool', label: 'AI Image Editor', icon: ImageIcon },
   ];
 
-  // Map primary color to Tailwind class dynamically
   const primaryColorClass = `text-${theme.primary}`;
   const primaryBgClass = `bg-${theme.primary}`;
   const activeBgClass = `bg-${theme.secondary}`;
 
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-900">
-      {/* Sidebar Desktop */}
+      {/* Sidebar - Menghilangkan Teks/Nama Menu */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transition-transform duration-300 lg:translate-x-0 lg:static lg:inset-0
+        fixed inset-y-0 left-0 z-50 bg-white border-r border-slate-200 transition-all duration-300 ease-in-out
+        lg:translate-x-0 w-20
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        <div className="flex flex-col h-full">
-          <div className="flex items-center justify-between p-6 h-20 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <div className={`p-2 ${primaryBgClass} rounded-lg shadow-lg shadow-emerald-100`}>
-                <Hospital className="w-6 h-6 text-white" />
-              </div>
-              <div className="flex flex-col">
-                <span className="font-bold text-base leading-tight">Basmalah</span>
-                <span className={`text-xs ${primaryColorClass} font-bold uppercase tracking-widest`}>Medika</span>
-              </div>
+        <div className="flex flex-col h-full overflow-hidden">
+          {/* Header Sidebar */}
+          <div className="flex items-center justify-center h-20 border-b border-slate-100 shrink-0">
+            <div className={`p-2.5 ${primaryBgClass} rounded-xl shadow-lg shadow-emerald-100`}>
+              <Hospital className="w-6 h-6 text-white" />
             </div>
-            <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden">
+            <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden absolute right-4">
               <X className="w-6 h-6" />
             </button>
           </div>
 
-          <nav className="flex-1 px-4 py-6 space-y-1">
+          {/* Navigation - Hanya Ikon */}
+          <nav className="flex-1 px-3 py-6 space-y-4 overflow-y-auto">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -75,30 +72,42 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
                     setIsSidebarOpen(false);
                   }}
                   className={`
-                    w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group
+                    w-full flex items-center justify-center p-3 rounded-xl transition-all duration-200 group relative
                     ${isActive 
-                      ? `${activeBgClass} ${primaryColorClass} font-semibold` 
-                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'}
+                      ? `${activeBgClass} ${primaryColorClass}` 
+                      : 'text-slate-400 hover:bg-slate-50 hover:text-slate-900'}
                   `}
+                  title={item.label} 
                 >
-                  <Icon className={`w-5 h-5 ${isActive ? primaryColorClass : 'text-slate-400 group-hover:text-slate-900'}`} />
-                  {item.label}
+                  <Icon className={`w-6 h-6 shrink-0 ${isActive ? primaryColorClass : 'group-hover:text-slate-900'}`} />
+                  
+                  {isActive && (
+                    <div className={`absolute right-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-l-full ${primaryBgClass}`} />
+                  )}
+                  
+                  {/* Tooltip on Hover */}
+                  <div className="absolute left-full ml-4 px-2 py-1 bg-slate-800 text-white text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">
+                    {item.label}
+                  </div>
                 </button>
               );
             })}
           </nav>
 
-          <div className="p-4 border-t border-slate-100">
-            <button className="flex items-center gap-3 w-full px-4 py-3 text-slate-500 hover:text-red-600 transition-colors">
-              <LogOut className="w-5 h-5" />
-              Keluar
+          {/* Footer Sidebar */}
+          <div className="p-3 border-t border-slate-100">
+            <button className="flex items-center justify-center w-full p-3 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all group relative" title="Keluar">
+              <LogOut className="w-6 h-6 shrink-0" />
+              <div className="absolute left-full ml-4 px-2 py-1 bg-red-600 text-white text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap z-50">
+                Keluar
+              </div>
             </button>
           </div>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+      <main className="flex-1 flex flex-col h-screen overflow-hidden lg:ml-20">
         <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-6 lg:px-10 shrink-0">
           <div className="flex items-center gap-4">
             <button 
@@ -113,11 +122,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
           </div>
           
           <div className="flex items-center gap-4">
-            <div className="hidden md:flex flex-col items-end">
-              <span className="text-sm font-medium text-slate-900">Admin Basmalah</span>
-              <span className="text-xs text-slate-400">Staff Keuangan & Data</span>
+            <div className="hidden md:flex flex-col items-end text-right">
+              <span className="text-sm font-black text-slate-900 uppercase tracking-tighter">Basmalah Medika</span>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Finance Management</span>
             </div>
-            <div className={`w-10 h-10 rounded-full ${activeBgClass} flex items-center justify-center border border-slate-100 ${primaryColorClass} font-bold`}>
+            <div className={`w-10 h-10 rounded-full ${activeBgClass} flex items-center justify-center border border-slate-100 ${primaryColorClass} font-bold shadow-sm`}>
               BM
             </div>
           </div>

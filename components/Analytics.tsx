@@ -1,5 +1,5 @@
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { 
   BarChart, 
   Bar, 
@@ -11,7 +11,8 @@ import {
   ResponsiveContainer, 
   LineChart,
   Line,
-  Cell
+  Cell,
+  LabelList
 } from 'recharts';
 import { 
   Briefcase, 
@@ -24,16 +25,18 @@ import {
   FileSpreadsheet,
   Calculator,
   PieChart as PieChartIcon,
-  History,
   TrendingUp as TrendingUpIcon,
   Download,
-  ArrowUpRight,
-  ArrowDownRight,
-  Filter,
-  Calendar
+  FileText,
+  Upload,
+  Calendar,
+  Printer,
+  Edit2
 } from 'lucide-react';
-import { SummaryStats, Transaction, PatientDailyStat, BalanceItem, AppTheme } from '../types';
+import { SummaryStats, Transaction, PatientDailyStat, BalanceItem, AppTheme, TransactionType } from '../types';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 interface AnalyticsProps {
   stats: SummaryStats;
@@ -43,24 +46,26 @@ interface AnalyticsProps {
   onUpdateBalance: (id: string, item: Partial<BalanceItem>) => void;
   onAddBalance: (item: Omit<BalanceItem, 'id'>) => void;
   onDeleteBalance: (id: string) => void;
+  onBulkAdd: (bulk: Omit<Transaction, 'id'>[]) => void;
   theme: AppTheme;
 }
 
 type ReportType = 'balance-sheet' | 'profit-loss';
 
 export const Analytics: React.FC<AnalyticsProps> = ({ 
-  stats, transactions, patientStats, balanceItems, onUpdateBalance, onAddBalance, onDeleteBalance, theme 
+  stats, transactions = [], patientStats = [], balanceItems = [], onUpdateBalance, onAddBalance, onDeleteBalance, onBulkAdd, theme 
 }) => {
   const [activeReport, setActiveReport] = useState<ReportType>('profit-loss');
-  const [showModal, setShowModal] = useState(false);
-  const [modalCat, setModalCat] = useState<'Asset' | 'Liability' | 'Equity'>('Asset');
-  const [itemName, setItemName] = useState('');
-  const [itemAmount, setItemAmount] = useState('');
+  const [showBalanceModal, setShowBalanceModal] = useState(false);
+  const [balanceModalType, setBalanceModalType] = useState<'Asset' | 'Liability' | 'Equity'>('Asset');
+  const [balanceIdToEdit, setBalanceIdToEdit] = useState<string | null>(null);
+  const [balanceName, setBalanceName] = useState('');
+  const [balanceAmount, setBalanceAmount] = useState('');
   
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState('');
+  const reportRef = useRef<HTMLDivElement>(null);
+  const trendChartRef = useRef<HTMLDivElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  // State untuk Filter Tanggal Tren Pertumbuhan
   const [trendStartDate, setTrendStartDate] = useState(() => {
     const d = new Date();
     d.setMonth(d.getMonth() - 5);
@@ -70,368 +75,252 @@ export const Analytics: React.FC<AnalyticsProps> = ({
   const [trendEndDate, setTrendEndDate] = useState(new Date().toISOString().split('T')[0]);
 
   const formatCurrency = (val: number) => 
-    new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val);
+    new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(val || 0);
 
   const monthlyComparisonData = useMemo(() => {
     const data = [];
-    let current = new Date(trendStartDate);
-    current.setDate(1); // Pastikan mulai dari awal bulan
+    const start = new Date(trendStartDate);
     const end = new Date(trendEndDate);
-    // Set end date to end of month to ensure inclusion if user picks mid-month
-    end.setMonth(end.getMonth() + 1);
-    end.setDate(0);
+    let curr = new Date(start.getFullYear(), start.getMonth(), 1);
 
-    while (current <= end) {
-      const monthKey = current.toISOString().substring(0, 7); // YYYY-MM
-      const label = current.toLocaleDateString('id-ID', { month: 'short', year: 'numeric' });
-
-      let income = 0;
-      let expense = 0;
-
-      // Filter transaksi untuk bulan ini
-      transactions.forEach(t => {
-        if (t.date.startsWith(monthKey)) {
-          if (t.type === 'Income') income += t.amount;
-          else expense += t.amount;
+    while (curr <= end) {
+      const monthKey = curr.toISOString().substring(0, 7);
+      const label = curr.toLocaleDateString('id-ID', { month: 'short', year: 'numeric' });
+      let income = 0, expense = 0;
+      (Array.isArray(transactions) ? transactions : []).forEach(t => {
+        if (t && t.date && t.date.startsWith(monthKey)) {
+          if (t.type === 'Income') income += (t.amount || 0);
+          else expense += (t.amount || 0);
         }
       });
-
-      data.push({
-        key: monthKey,
-        label: label,
-        Income: income,
-        Expense: expense,
-        NetProfit: income - expense
-      });
-
-      // Pindah ke bulan berikutnya
-      current.setMonth(current.getMonth() + 1);
+      data.push({ monthKey, label, Income: income, Expense: expense, NetProfit: income - expense, Tax: income * 0.005 });
+      curr.setMonth(curr.getMonth() + 1);
     }
     return data;
   }, [transactions, trendStartDate, trendEndDate]);
 
-  const assets = balanceItems.filter(i => i.category === 'Asset');
-  const liabilities = balanceItems.filter(i => i.category === 'Liability');
-  const manualEquities = balanceItems.filter(i => i.category === 'Equity');
+  const detailedReport = useMemo(() => {
+    const filteredTx = transactions.filter(t => t.date >= trendStartDate && t.date <= trendEndDate);
+    const groupByCategory = (type: TransactionType) => {
+      const grouped: Record<string, number> = {};
+      filteredTx.filter(t => t.type === type).forEach(t => { grouped[t.category] = (grouped[t.category] || 0) + (t.amount || 0); });
+      return Object.entries(grouped).map(([name, amount]) => ({ name, amount })).sort((a, b) => b.amount - a.amount);
+    };
+    const incomeDetails = groupByCategory('Income');
+    const expenseDetails = groupByCategory('Expense');
+    const totalIncome = incomeDetails.reduce((sum, item) => sum + item.amount, 0);
+    const totalExpense = expenseDetails.reduce((sum, item) => sum + item.amount, 0);
+    return { incomeDetails, expenseDetails, totalIncome, totalExpense, netProfit: totalIncome - totalExpense };
+  }, [transactions, trendStartDate, trendEndDate]);
 
-  const totalAssets = assets.reduce((a, b) => a + b.amount, 0);
-  const totalLiabilities = liabilities.reduce((a, b) => a + b.amount, 0);
-  const totalManualEquity = manualEquities.reduce((a, b) => a + b.amount, 0);
-  
-  const currentProfit = stats.netProfit;
-  const totalEquity = totalManualEquity + currentProfit;
-  const totalPassiva = totalLiabilities + totalEquity;
-  
-  const isBalanced = Math.abs(totalAssets - totalPassiva) < 1;
+  const exportTrendChartToPDF = async () => {
+    if (!trendChartRef.current) return;
+    try {
+      const canvas = await html2canvas(trendChartRef.current, { scale: 2 });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('l', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      pdf.text("Tren Laba Bersih 6 Bulan", 10, 10);
+      pdf.addImage(imgData, 'PNG', 0, 15, pdfWidth, pdfHeight);
+      pdf.save(`Tren_Laba_Medika_${new Date().getFullYear()}.pdf`);
+    } catch (err) { console.error(err); }
+  };
 
-  const incomeByCategory = useMemo(() => {
-    const cats: Record<string, number> = {};
-    transactions.filter(t => t.type === 'Income').forEach(t => {
-      cats[t.category] = (cats[t.category] || 0) + t.amount;
-    });
-    return Object.entries(cats).sort((a, b) => b[1] - a[1]);
-  }, [transactions]);
+  const handleOpenBalanceModal = (type: 'Asset' | 'Liability' | 'Equity', item?: BalanceItem) => {
+    setBalanceModalType(type);
+    if (item) { setBalanceIdToEdit(item.id); setBalanceName(item.name); setBalanceAmount(item.amount.toString()); setBalanceModalType(item.category); }
+    else { setBalanceIdToEdit(null); setBalanceName(''); setBalanceAmount(''); }
+    setShowBalanceModal(true);
+  };
 
-  const expenseByCategory = useMemo(() => {
-    const cats: Record<string, number> = {};
-    transactions.filter(t => t.type === 'Expense').forEach(t => {
-      cats[t.category] = (cats[t.category] || 0) + t.amount;
-    });
-    return Object.entries(cats).sort((a, b) => b[1] - a[1]);
-  }, [transactions]);
-
-  const estimatedTax = stats.totalIncome * 0.005;
-  const netProfitAfterTax = stats.netProfit - estimatedTax;
-
-  const handleAddItem = (e: React.FormEvent) => {
+  const handleSaveBalanceItem = (e: React.FormEvent) => {
     e.preventDefault();
-    onAddBalance({ name: itemName, amount: parseFloat(itemAmount) || 0, category: modalCat });
-    setItemName(''); setItemAmount(''); setShowModal(false);
+    const amount = parseFloat(balanceAmount);
+    if (!balanceName || isNaN(amount)) return;
+    if (balanceIdToEdit) onUpdateBalance(balanceIdToEdit, { name: balanceName, amount, category: balanceModalType });
+    else onAddBalance({ name: balanceName, amount, category: balanceModalType });
+    setShowBalanceModal(false);
   };
 
-  const startEditing = (item: BalanceItem) => {
-    setEditingItemId(item.id);
-    setEditValue(item.amount.toString());
+  const handleDownloadPDF = async () => {
+    if (!reportRef.current) return;
+    try {
+      const canvas = await html2canvas(reportRef.current, { scale: 2 });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      pdf.addImage(imgData, 'PNG', 0, 10, pdfWidth, pdfHeight);
+      pdf.save(`Laporan_Laba_Rugi_${trendStartDate}_${trendEndDate}.pdf`);
+    } catch (err) { console.error(err); }
   };
 
-  const saveEdit = (id: string) => {
-    onUpdateBalance(id, { amount: parseFloat(editValue) || 0 });
-    setEditingItemId(null);
-  };
-
-  const exportTaxReport = () => {
-    const data: any[][] = [
-      ["LAPORAN LABA RUGI & PERHITUNGAN PAJAK UMKM - TAHUN PAJAK 2026"],
-      ["KLINIK BASMALAH MEDIKA"],
-      ["Periode Laporan:", "Real-time s/d " + new Date().toLocaleDateString('id-ID')],
-      [],
-      ["A. PENDAPATAN BRUTO (OMZET)", "JUMLAH (IDR)"],
-      ...incomeByCategory,
-      ["TOTAL PENDAPATAN BRUTO", stats.totalIncome],
-      [],
-      ["B. PENGELUARAN OPERASIONAL", "JUMLAH (IDR)"],
-      ...expenseByCategory,
-      ["TOTAL PENGELUARAN", stats.totalExpense],
-      [],
-      ["C. RINGKASAN PAJAK UMKM (PP 55/2022)"],
-      ["Total Omzet Bruto", stats.totalIncome],
-      ["Tarif Pajak PPh Final", "0.5%"],
-      ["ESTIMASI PAJAK TERHUTANG", estimatedTax],
-      [],
-      ["D. LABA BERSIH SETELAH PAJAK"],
-      ["Laba Bersih Sebelum Pajak", stats.netProfit],
-      ["Estimasi Pajak", estimatedTax],
-      ["LABA BERSIH AKHIR", netProfitAfterTax],
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(data);
+  const handleDownloadXLSX = () => {
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Laporan Pajak");
-    XLSX.writeFile(wb, `Laporan_Pajak_2026_Klinik_Basmalah_${new Date().toISOString().split('T')[0]}.xlsx`);
+    const rows = [["LAPORAN LABA RUGI"], [`Periode: ${trendStartDate} s/d ${trendEndDate}`], [""], ["PENDAPATAN"]];
+    detailedReport.incomeDetails.forEach(item => rows.push([item.name, item.amount]));
+    rows.push(["TOTAL PENDAPATAN", detailedReport.totalIncome], [""], ["BEBAN OPERASIONAL"]);
+    detailedReport.expenseDetails.forEach(item => rows.push([item.name, item.amount]));
+    rows.push(["TOTAL PENGELUARAN", detailedReport.totalExpense], [""], ["LABA BERSIH", detailedReport.netProfit]);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "Laba Rugi");
+    XLSX.writeFile(wb, `Laporan_Laba_Rugi_${trendStartDate}.xlsx`);
   };
 
-  const primaryColorClass = `text-${theme.primary}`;
-  const lightBgClass = `bg-${theme.secondary}`;
-  const primaryBgClass = `bg-${theme.primary}`;
+  const handleImportXLSX = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws);
+        const bulk = data.map((row: any) => ({
+          type: (row.Tipe === 'Pendapatan' || row.type === 'Income') ? 'Income' : 'Expense',
+          category: row.Kategori || row.category || 'Lainnya',
+          amount: parseFloat(row.Jumlah || row.amount) || 0,
+          date: row.Tanggal || row.date || new Date().toISOString().split('T')[0],
+          patientType: (row.Pasien || row.patientType || 'None'),
+          note: row.Catatan || row.note || 'Import from Analytics'
+        }));
+        onBulkAdd(bulk as any);
+        alert(`Berhasil mengimpor ${bulk.length} transaksi.`);
+      } catch (err) { alert('Gagal impor.'); }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = '';
+  };
+
+  const assets = (Array.isArray(balanceItems) ? balanceItems : []).filter(i => i && i.category === 'Asset');
+  const liabilities = (Array.isArray(balanceItems) ? balanceItems : []).filter(i => i && i.category === 'Liability');
+  const equities = (Array.isArray(balanceItems) ? balanceItems : []).filter(i => i && i.category === 'Equity');
+  const totalAssets = assets.reduce((a, b) => a + (b.amount || 0), 0);
+  const totalLiabilities = liabilities.reduce((a, b) => a + (b.amount || 0), 0);
+  const totalEquityBase = equities.reduce((a, b) => a + (b.amount || 0), 0);
+  const totalPassiva = totalLiabilities + totalEquityBase + (stats.netProfit || 0);
+
+  const primaryColorClass = theme?.primary ? `text-${theme.primary}` : 'text-indigo-600';
+  const primaryBgClass = theme?.primary ? `bg-${theme.primary}` : 'bg-indigo-600';
+  const primaryBtnClass = theme?.primary ? `bg-${theme.primary} hover:opacity-90` : 'bg-slate-800';
 
   return (
     <div className="space-y-10 animate-in fade-in duration-700 pb-10">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex bg-slate-100 p-1.5 rounded-3xl w-fit shadow-inner">
-          <button onClick={() => setActiveReport('profit-loss')} className={`px-8 py-3 rounded-2xl font-black text-sm transition-all ${activeReport === 'profit-loss' ? 'bg-white shadow-md text-slate-900' : 'text-slate-500'}`}>LABA RUGI & PAJAK</button>
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
+        <div className="flex bg-slate-100 p-1.5 rounded-3xl w-fit">
+          <button onClick={() => setActiveReport('profit-loss')} className={`px-8 py-3 rounded-2xl font-black text-sm transition-all ${activeReport === 'profit-loss' ? 'bg-white shadow-md text-slate-900' : 'text-slate-500'}`}>LAPORAN LABA RUGI</button>
           <button onClick={() => setActiveReport('balance-sheet')} className={`px-8 py-3 rounded-2xl font-black text-sm transition-all ${activeReport === 'balance-sheet' ? 'bg-white shadow-md text-slate-900' : 'text-slate-500'}`}>NERACA KEUANGAN</button>
         </div>
-        
         {activeReport === 'profit-loss' && (
-          <button onClick={exportTaxReport} className="flex items-center gap-2 bg-emerald-600 text-white px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl hover:bg-emerald-700 transition-all active:scale-95 border-b-4 border-emerald-800">
-            <Download className="w-4 h-4" /> EKSPOR PAJAK UMKM (.XLSX)
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+             <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-3 shadow-sm">
+                <Calendar className="w-4 h-4 text-slate-400" />
+                <input type="date" className="bg-transparent text-xs font-black outline-none w-28" value={trendStartDate} onChange={(e) => setTrendStartDate(e.target.value)} />
+                <span className="text-slate-300 font-bold">-</span>
+                <input type="date" className="bg-transparent text-xs font-black outline-none w-28" value={trendEndDate} onChange={(e) => setTrendEndDate(e.target.value)} />
+             </div>
+             <button onClick={() => uploadInputRef.current?.click()} className="p-3 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-2xl transition-colors"><Upload className="w-5 h-5" /></button>
+             <input type="file" ref={uploadInputRef} className="hidden" accept=".xlsx" onChange={handleImportXLSX} />
+             <button onClick={handleDownloadPDF} className="p-3 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-2xl transition-colors"><Printer className="w-5 h-5" /></button>
+             <button onClick={handleDownloadXLSX} className={`flex items-center gap-2 ${primaryBgClass} text-white px-6 py-3 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition-all`}><Download className="w-4 h-4" /> UNDUH EXCEL</button>
+          </div>
         )}
       </div>
 
       {activeReport === 'profit-loss' ? (
-        <div className="space-y-10">
+        <div className="space-y-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden group">
-               <ArrowUpRight className="absolute -right-4 -bottom-4 w-24 h-24 text-emerald-500/5 group-hover:scale-110 transition-transform" />
-               <p className="text-[10px] font-black uppercase text-slate-400 mb-1 tracking-widest">Total Pendapatan</p>
-               <h3 className="text-2xl font-black text-slate-900">{formatCurrency(stats.totalIncome)}</h3>
+            <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
+               <p className="text-[10px] font-black uppercase text-slate-400 mb-1 tracking-widest">Pendapatan Bruto</p>
+               <h3 className="text-2xl font-black text-slate-900">{formatCurrency(detailedReport.totalIncome)}</h3>
             </div>
-            <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden group">
-               <ArrowDownRight className="absolute -right-4 -bottom-4 w-24 h-24 text-rose-500/5 group-hover:scale-110 transition-transform" />
-               <p className="text-[10px] font-black uppercase text-slate-400 mb-1 tracking-widest">Total Pengeluaran</p>
-               <h3 className="text-2xl font-black text-slate-900">{formatCurrency(stats.totalExpense)}</h3>
+            <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm transition-all hover:shadow-md">
+               <p className="text-[10px] font-black uppercase text-slate-400 mb-1 tracking-widest">Total Beban</p>
+               <h3 className="text-2xl font-black text-slate-900">{formatCurrency(detailedReport.totalExpense)}</h3>
             </div>
-            <div className="bg-rose-50 p-8 rounded-3xl border border-rose-100 shadow-sm">
-              <p className="text-[10px] font-black uppercase text-rose-500 mb-1 tracking-widest">PPh Final (0.5%)</p>
-              <h3 className="text-2xl font-black text-rose-600">{formatCurrency(estimatedTax)}</h3>
+            <div className="bg-rose-50 p-8 rounded-3xl border border-rose-100 shadow-sm group">
+               <p className="text-[10px] font-black uppercase text-rose-500 mb-1 tracking-widest">PPh Final UMKM (0.5%)</p>
+               <h3 className="text-2xl font-black text-rose-600">{formatCurrency(detailedReport.totalIncome * 0.005)}</h3>
             </div>
-            <div className="bg-emerald-600 p-8 rounded-3xl text-white shadow-xl relative overflow-hidden group">
-               <TrendingUp className="absolute -right-4 -bottom-4 w-24 h-24 text-white/5 group-hover:scale-110 transition-transform" />
-              <p className="text-[10px] font-black uppercase text-emerald-100 mb-1 tracking-widest">Profit Akhir</p>
-              <h3 className="text-2xl font-black">{formatCurrency(netProfitAfterTax)}</h3>
+            <div className={`bg-slate-800 p-8 rounded-3xl text-white shadow-xl relative overflow-hidden group`}>
+               <p className="text-[10px] font-black uppercase text-white/60 mb-1 tracking-widest">Laba Bersih Setelah Pajak</p>
+               <h3 className="text-2xl font-black">{formatCurrency(detailedReport.netProfit - (detailedReport.totalIncome * 0.005))}</h3>
             </div>
           </div>
 
-          <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-10">
-               <div className="flex items-center gap-4">
-                 <div className={`p-4 bg-emerald-50 rounded-[1.5rem]`}><TrendingUpIcon className={`w-6 h-6 text-emerald-600`} /></div>
-                 <div>
-                   <h3 className="font-black text-slate-800 uppercase tracking-widest text-sm mb-1">Tren Pertumbuhan Laba</h3>
-                   <p className="text-xs text-slate-400 font-medium italic">Estimasi profit bersih bulanan</p>
-                 </div>
-               </div>
-               
-               <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border border-slate-100">
-                  <div className="flex items-center gap-2 px-2">
-                    <Calendar className="w-4 h-4 text-slate-400" />
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Filter:</span>
-                  </div>
-                  <input type="date" className="bg-transparent text-xs font-bold text-slate-600 outline-none" value={trendStartDate} onChange={(e) => setTrendStartDate(e.target.value)} />
-                  <span className="text-slate-300 font-bold">-</span>
-                  <input type="date" className="bg-transparent text-xs font-bold text-slate-600 outline-none" value={trendEndDate} onChange={(e) => setTrendEndDate(e.target.value)} />
-               </div>
-            </div>
-
-            <div className="h-80 w-full">
-              {monthlyComparisonData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={monthlyComparisonData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 'bold'}} dy={10} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 'bold'}} />
-                    <Tooltip contentStyle={{borderRadius: '20px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', padding: '16px'}} formatter={(v: any) => formatCurrency(v)} />
-                    <Line type="monotone" dataKey="NetProfit" stroke="#10b981" strokeWidth={5} dot={{ r: 6, fill: '#10b981', stroke: '#fff', strokeWidth: 3 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-slate-300">
-                  <Activity className="w-12 h-12 opacity-10 mb-2" />
-                  <p className="text-xs font-black uppercase tracking-widest italic">Tidak ada data untuk rentang ini</p>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2">
+              <div ref={reportRef} className="bg-white p-10 rounded-xl border border-slate-200 shadow-sm min-h-[600px] text-slate-800 font-sans">
+                <div className="border-b-2 border-slate-800 pb-4 mb-8">
+                  <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900">Laporan Laba Rugi Terperinci</h2>
+                  <p className="text-sm text-slate-500 font-medium">Periode: {trendStartDate} - {trendEndDate}</p>
                 </div>
-              )}
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
-              <h4 className="font-black text-slate-800 uppercase tracking-widest text-xs mb-6">Rincian Pendapatan</h4>
-              <div className="space-y-4">
-                {incomeByCategory.map(([cat, val]) => (
-                  <div key={cat} className="flex justify-between items-center py-3 border-b border-slate-50 hover:bg-slate-50 px-2 transition-colors rounded-lg">
-                    <span className="text-sm font-bold text-slate-600">{cat}</span>
-                    <span className="text-sm font-black text-slate-900">{formatCurrency(val)}</span>
-                  </div>
-                ))}
+                <div className="mb-8">
+                  <h3 className="text-sm font-black uppercase tracking-widest text-emerald-600 mb-4 border-b border-emerald-100 pb-2">Pendapatan</h3>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {detailedReport.incomeDetails.map((item, idx) => (
+                        <tr key={idx} className="border-b border-dashed border-slate-100 last:border-0"><td className="py-2 text-slate-600 pl-4">{item.name}</td><td className="py-2 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td></tr>
+                      ))}
+                      <tr className="bg-emerald-50/50"><td className="py-3 font-black text-slate-900 uppercase pl-2">Total Pendapatan</td><td className="py-3 text-right font-black text-emerald-600">{formatCurrency(detailedReport.totalIncome)}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mb-8">
+                  <h3 className="text-sm font-black uppercase tracking-widest text-rose-600 mb-4 border-b border-rose-100 pb-2">Pengeluaran</h3>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {detailedReport.expenseDetails.map((item, idx) => (
+                        <tr key={idx} className="border-b border-dashed border-slate-100 last:border-0"><td className="py-2 text-slate-600 pl-4">{item.name}</td><td className="py-2 text-right font-bold text-slate-800">{formatCurrency(item.amount)}</td></tr>
+                      ))}
+                      <tr className="bg-rose-50/50"><td className="py-3 font-black text-slate-900 uppercase pl-2">Total Pengeluaran</td><td className="py-3 text-right font-black text-rose-600">{formatCurrency(detailedReport.totalExpense)}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="border-t-4 border-slate-100 pt-4"><div className="flex justify-between items-center py-4 px-4 bg-slate-50 rounded-xl font-black uppercase text-slate-900"><span>Laba Rugi Bersih</span><span className={detailedReport.netProfit >= 0 ? 'text-indigo-600 text-2xl' : 'text-rose-600 text-2xl'}>{formatCurrency(detailedReport.netProfit)}</span></div></div>
               </div>
             </div>
-            <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
-              <h4 className="font-black text-slate-800 uppercase tracking-widest text-xs mb-6">Rincian Pengeluaran</h4>
-              <div className="space-y-4">
-                {expenseByCategory.map(([cat, val]) => (
-                  <div key={cat} className="flex justify-between items-center py-3 border-b border-slate-50 hover:bg-slate-50 px-2 transition-colors rounded-lg">
-                    <span className="text-sm font-bold text-slate-600">{cat}</span>
-                    <span className="text-sm font-black text-rose-600">{formatCurrency(val)}</span>
-                  </div>
-                ))}
+            <div ref={trendChartRef} className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm h-fit relative group/card">
+              <button onClick={exportTrendChartToPDF} className="absolute top-6 right-6 p-2 bg-slate-50 text-slate-400 rounded-xl hover:text-indigo-600 border border-slate-100 opacity-0 group-hover/card:opacity-100 transition-opacity"><Download className="w-4 h-4"/></button>
+              <div className="flex items-center gap-4 mb-6">
+                <div className="p-3 bg-indigo-50 rounded-2xl"><TrendingUpIcon className="w-5 h-5 text-indigo-600" /></div>
+                <h3 className="font-black text-slate-800 uppercase tracking-widest text-xs">Grafik Tren Laba</h3>
+              </div>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={monthlyComparisonData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 9, fontWeight: 'bold'}} />
+                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 9, fontWeight: 'bold'}} />
+                    <Tooltip contentStyle={{borderRadius: '16px', border: 'none', fontSize: '12px'}} />
+                    <Line type="monotone" dataKey="NetProfit" stroke="#6366f1" strokeWidth={3} dot={{ r: 4, fill: '#6366f1' }} />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             </div>
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 bg-white rounded-[3rem] border border-slate-200 shadow-sm overflow-hidden">
-            <div className={`p-8 border-b border-slate-100 ${lightBgClass} flex items-center justify-between`}>
-              <div className="flex items-center gap-3">
-                <Briefcase className={`w-8 h-8 ${primaryColorClass}`} />
-                <div>
-                  <h3 className="font-black text-xl text-slate-800 uppercase tracking-tight">Neraca Keuangan 2026</h3>
-                  <p className="text-xs text-slate-400 font-bold">Laporan Aktiva & Pasiva</p>
-                </div>
-              </div>
-              {isBalanced ? (
-                <div className="flex flex-col items-end">
-                   <span className="flex items-center gap-1.5 text-[10px] font-black bg-emerald-500 text-white px-4 py-2 rounded-full uppercase tracking-widest shadow-lg shadow-emerald-100">
-                    <CheckCircle2 className="w-4 h-4" /> Balanced
-                  </span>
-                </div>
-              ) : (
-                <span className="text-[10px] font-black bg-rose-500 text-white px-4 py-2 rounded-full uppercase tracking-widest">Unbalanced</span>
-              )}
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 min-h-[500px]">
-              <div className="p-10 border-r border-slate-100">
-                <div className="flex items-center justify-between mb-8">
-                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Aset (Aktiva)</h4>
-                  <button onClick={() => {setModalCat('Asset'); setShowModal(true)}} className="p-2 bg-emerald-50 text-emerald-600 rounded-xl"><Plus className="w-5 h-5" /></button>
-                </div>
-                <div className="space-y-6">
-                  {assets.map((item) => (
-                    <div key={item.id} className="flex justify-between items-start group p-4 hover:bg-slate-50 rounded-2xl transition-all">
-                      <div className="flex flex-col">
-                        <span className="text-sm text-slate-500 font-black uppercase tracking-tighter">{item.name}</span>
-                        {editingItemId === item.id ? (
-                          <input autoFocus type="number" className="bg-white border rounded px-3 py-1.5 text-sm font-black w-32 mt-2 outline-none" value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={() => saveEdit(item.id)} onKeyDown={(e) => e.key === 'Enter' && saveEdit(item.id)} />
-                        ) : (
-                          <span onClick={() => startEditing(item)} className="text-lg font-black text-slate-900 cursor-pointer hover:text-indigo-600 transition-colors">{formatCurrency(item.amount)}</span>
-                        )}
-                      </div>
-                      <button onClick={() => onDeleteBalance(item.id)} className="p-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-600"><Trash2 className="w-4 h-4" /></button>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-10 pt-8 border-t-2 border-slate-50 flex justify-between items-center px-4">
-                  <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Harta</span>
-                  <span className={`text-2xl font-black ${primaryColorClass}`}>{formatCurrency(totalAssets)}</span>
-                </div>
-              </div>
-              <div className="p-10 bg-slate-50/20">
-                <div className="mb-12">
-                  <div className="flex items-center justify-between mb-8">
-                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Kewajiban</h4>
-                    <button onClick={() => {setModalCat('Liability'); setShowModal(true)}} className="p-2 bg-rose-50 text-rose-600 rounded-xl"><Plus className="w-5 h-5" /></button>
-                  </div>
-                  <div className="space-y-6">
-                    {liabilities.map((item) => (
-                      <div key={item.id} className="flex justify-between items-start group p-4 hover:bg-white rounded-2xl transition-all">
-                        <div className="flex flex-col">
-                          <span className="text-sm text-slate-500 font-black uppercase tracking-tighter">{item.name}</span>
-                          {editingItemId === item.id ? (
-                            <input autoFocus type="number" className="bg-white border rounded px-3 py-1.5 text-sm font-black w-32 mt-2 outline-none" value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={() => saveEdit(item.id)} onKeyDown={(e) => e.key === 'Enter' && saveEdit(item.id)} />
-                          ) : (
-                            <span onClick={() => startEditing(item)} className="text-lg font-black text-slate-900 cursor-pointer hover:text-indigo-600">{formatCurrency(item.amount)}</span>
-                          )}
-                        </div>
-                        <button onClick={() => onDeleteBalance(item.id)} className="p-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-600"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <div className="flex items-center justify-between mb-8">
-                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Ekuitas</h4>
-                    <button onClick={() => {setModalCat('Equity'); setShowModal(true)}} className="p-2 bg-indigo-50 text-indigo-600 rounded-xl"><Plus className="w-5 h-5" /></button>
-                  </div>
-                  <div className="space-y-6">
-                    {manualEquities.map((item) => (
-                      <div key={item.id} className="flex justify-between items-start group p-4 hover:bg-white rounded-2xl transition-all">
-                        <div className="flex flex-col">
-                          <span className="text-sm text-slate-500 font-black uppercase tracking-tighter">{item.name}</span>
-                          {editingItemId === item.id ? (
-                            <input autoFocus type="number" className="bg-white border rounded px-3 py-1.5 text-sm font-black w-32 mt-2 outline-none" value={editValue} onChange={(e) => setEditValue(e.target.value)} onBlur={() => saveEdit(item.id)} onKeyDown={(e) => e.key === 'Enter' && saveEdit(item.id)} />
-                          ) : (
-                            <span onClick={() => startEditing(item)} className="text-lg font-black text-slate-900 cursor-pointer hover:text-indigo-600">{formatCurrency(item.amount)}</span>
-                          )}
-                        </div>
-                        <button onClick={() => onDeleteBalance(item.id)} className="p-2 opacity-0 group-hover:opacity-100 text-slate-300 hover:text-rose-600"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                    ))}
-                    <div className="flex justify-between items-start p-5 bg-indigo-600 text-white rounded-2xl shadow-lg relative overflow-hidden group">
-                      <div className="flex flex-col">
-                        <span className="text-[10px] text-white/60 font-black uppercase tracking-widest">Laba Berjalan</span>
-                        <span className="text-xl font-black">{formatCurrency(currentProfit)}</span>
-                      </div>
-                      <CheckCircle2 className="w-5 h-5 text-white/40" />
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-12 pt-8 border-t-2 border-slate-100 flex justify-between items-center px-4">
-                  <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Pasiva</span>
-                  <span className="text-2xl font-black text-slate-900">{formatCurrency(totalPassiva)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="flex flex-col gap-6">
-            <div className={`bg-slate-900 rounded-[2.5rem] p-10 text-white shadow-2xl relative overflow-hidden`}>
-              <div className="relative z-10">
-                <p className="text-slate-400 text-xs font-black uppercase tracking-widest mb-2">Asset Turnover Ratio</p>
-                <h2 className="text-5xl font-black tracking-tighter">{(stats.totalIncome / (totalAssets || 1)).toFixed(2)}<small className="text-xl">x</small></h2>
-              </div>
-            </div>
+        <div className="bg-white rounded-[3rem] border border-slate-200 p-10 min-h-[500px]">
+          <div className="flex justify-between items-center mb-8"><h3 className="font-black text-2xl uppercase tracking-tighter">Neraca Keuangan Aktiva & Pasiva</h3><div className="text-xs text-slate-400 font-bold bg-slate-100 px-4 py-2 rounded-xl">{totalAssets === totalPassiva ? <span className="text-emerald-600 flex items-center gap-1"><CheckCircle2 className="w-4 h-4"/> SEIMBANG (BALANCED)</span> : <span className="text-rose-600 flex items-center gap-1"><X className="w-4 h-4"/> BELUM SEIMBANG</span>}</div></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+            <div className="bg-slate-50/50 p-6 rounded-[2rem] border border-slate-100"><div className="flex justify-between items-center mb-6 border-b border-slate-200 pb-4"><h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">AKTIVA</h4><button onClick={() => handleOpenBalanceModal('Asset')} className="text-emerald-600 hover:bg-emerald-50 p-2 rounded-lg transition-all"><Plus className="w-5 h-5"/></button></div><div className="space-y-4">{assets.map(item => (<div key={item.id} className="flex justify-between items-center p-4 bg-white rounded-2xl group transition-all hover:shadow-sm border border-transparent hover:border-emerald-100"><span className="font-bold text-slate-600">{item.name}</span><div className="flex items-center gap-4"><span className="font-black text-slate-900">{formatCurrency(item.amount)}</span><div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={() => handleOpenBalanceModal('Asset', item)} className="p-1.5 text-slate-400 hover:text-indigo-600 bg-slate-100 rounded-lg"><Edit2 className="w-3 h-3"/></button><button onClick={() => onDeleteBalance(item.id)} className="p-1.5 text-slate-400 hover:text-rose-600 bg-slate-100 rounded-lg"><Trash2 className="w-3 h-3"/></button></div></div></div>))}<div className="pt-6 border-t-2 border-slate-200 flex justify-between mt-8 font-black"><span className="text-xs text-slate-400 uppercase">TOTAL AKTIVA</span><span className={`text-2xl ${primaryColorClass}`}>{formatCurrency(totalAssets)}</span></div></div></div>
+            <div className="bg-slate-50/50 p-6 rounded-[2rem] border border-slate-100"><div className="flex justify-between items-center mb-6 border-b border-slate-200 pb-4"><h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">PASIVA</h4><button onClick={() => handleOpenBalanceModal('Liability')} className="text-rose-600 hover:bg-rose-50 p-2 rounded-lg transition-all"><Plus className="w-5 h-5"/></button></div><div className="space-y-4">{[...liabilities, ...equities].map(item => (<div key={item.id} className="flex justify-between items-center p-4 bg-white rounded-2xl group hover:shadow-sm transition-all border border-transparent hover:border-rose-100"><div><span className="font-bold text-slate-600 block">{item.name}</span><span className="text-[9px] font-black uppercase text-slate-300">{item.category}</span></div><div className="flex items-center gap-4"><span className="font-black text-slate-900">{formatCurrency(item.amount)}</span><div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={() => handleOpenBalanceModal(item.category, item)} className="p-1.5 text-slate-400 hover:text-indigo-600 bg-slate-100 rounded-lg"><Edit2 className="w-3 h-3"/></button><button onClick={() => onDeleteBalance(item.id)} className="p-1.5 text-slate-400 hover:text-rose-600 bg-slate-100 rounded-lg"><Trash2 className="w-3 h-3"/></button></div></div></div>))}<div className="flex justify-between p-5 bg-indigo-600 text-white rounded-2xl shadow-lg transform hover:scale-[1.02] transition-all"><div><span className="font-bold block">Laba Berjalan Klinik</span><span className="text-[9px] uppercase opacity-70">Automated</span></div><span className="font-black">{formatCurrency(stats.netProfit)}</span></div><div className="pt-6 border-t-2 border-slate-200 flex justify-between mt-8 font-black"><span className="text-xs text-slate-400 uppercase">TOTAL PASIVA</span><span className="text-2xl text-slate-900">{formatCurrency(totalPassiva)}</span></div></div></div>
           </div>
         </div>
       )}
 
-      {showModal && (
+      {showBalanceModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowModal(false)} />
-          <div className="relative bg-white w-full max-md rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className={`p-8 border-b border-slate-100 flex items-center justify-between ${lightBgClass}`}>
-              <h3 className="text-xl font-black text-slate-800 uppercase tracking-widest">Tambah {modalCat}</h3>
-              <button onClick={() => setShowModal(false)} className="p-2 hover:bg-white rounded-full transition-colors"><X className="w-6 h-6 text-slate-400" /></button>
-            </div>
-            <form onSubmit={handleAddItem} className="p-8 space-y-6">
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Nama Akun</label>
-                <input required type="text" className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500/20 focus:bg-white rounded-2xl p-4 font-bold outline-none" value={itemName} onChange={(e) => setItemName(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">Saldo (IDR)</label>
-                <input required type="number" className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500/20 focus:bg-white rounded-2xl p-4 font-bold outline-none" value={itemAmount} onChange={(e) => setItemAmount(e.target.value)} />
-              </div>
-              <button type="submit" className={`w-full ${primaryBgClass} text-white py-4 rounded-2xl font-black uppercase tracking-widest`}>Simpan</button>
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowBalanceModal(false)} />
+          <div className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 animate-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-black mb-6">{balanceIdToEdit ? 'Edit Item' : 'Tambah Item'}</h3>
+            <form onSubmit={handleSaveBalanceItem} className="space-y-4">
+               <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Kategori</label><select className="w-full bg-slate-50 p-4 rounded-xl border-none outline-none font-bold text-sm" value={balanceModalType} onChange={(e) => setBalanceModalType(e.target.value as any)}><option value="Asset">AKTIVA</option><option value="Liability">KEWAJIBAN</option><option value="Equity">MODAL</option></select></div>
+               <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Nama Akun</label><input required type="text" placeholder="Nama Akun" className="w-full bg-slate-50 p-4 rounded-xl border-none outline-none font-bold text-sm" value={balanceName} onChange={(e) => setBalanceName(e.target.value)} /></div>
+               <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Nilai (IDR)</label><input required type="number" placeholder="0" className="w-full bg-slate-50 p-4 rounded-xl border-none outline-none font-bold text-sm" value={balanceAmount} onChange={(e) => setBalanceAmount(e.target.value)} /></div>
+               <div className="pt-4 flex gap-3"><button type="button" onClick={() => setShowBalanceModal(false)} className="flex-1 py-4 rounded-xl font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 transition-all">Batal</button><button type="submit" className={`flex-1 py-4 rounded-xl text-white font-black text-sm uppercase shadow-xl active:scale-95 transition-all ${primaryBtnClass}`}>SIMPAN</button></div>
             </form>
           </div>
         </div>
